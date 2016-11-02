@@ -39,7 +39,7 @@ ECS.prototype.clusters = function(){
  * services for a cluster.
  *
  * @public
- * @param {String} cluster - the cluster arn 
+ * @param {String} cluster - the cluster arn
  * @return {Promise} [services]
  */
 
@@ -78,7 +78,7 @@ ECS.prototype.listClusters = function(){
 
 ECS.prototype.describeClusters = function(clusters){
   let ecs = this.ecs;
-  debug('ecs.describeClusters()'); 
+  debug('ecs.describeClusters()');
   return new Promise((resolve, reject) => {
     ecs.describeClusters({ clusters: clusters }, (err, data) => {
       if (err) return reject(err);
@@ -96,7 +96,7 @@ ECS.prototype.describeClusters = function(clusters){
 
 ECS.prototype.listServices = function(cluster){
   let ecs = this.ecs;
-  debug('ecs.listServices()'); 
+  debug('ecs.listServices()');
   return new Promise((resolve, reject) => {
     let services = [];
     list(cluster, null, (err, services) => {
@@ -126,7 +126,7 @@ ECS.prototype.listServices = function(cluster){
 
 ECS.prototype.describeServices = function ([cluster, services]){
   let ecs = this.ecs;
-  debug('ecs.describeServices called'); 
+  debug('ecs.describeServices called');
   return new Promise((resolve, reject) => {
     let chunks = chunk(services, 10);
     let batch = new Batch();
@@ -151,7 +151,7 @@ ECS.prototype.describeServices = function ([cluster, services]){
         ecs.describeServices(req, done);
       };
     }
-  }); 
+  });
 }
 
 /**
@@ -168,5 +168,73 @@ ECS.prototype.task = function (task){
       if (err) return reject(err);
       resolve(res);
     });
+  });
+}
+
+/**
+ * Lists all the container instances for a cluster
+ *
+ * @private
+ * @param {String} cluster
+ */
+
+ECS.prototype.listContainerInstances = function(cluster){
+  let ecs = this.ecs;
+  debug('ecs.listContainerInstances()');
+  return new Promise((resolve, reject) => {
+    let instances = [];
+    list(cluster, null, (err, instances) => {
+      if (err) return reject(err);
+      resolve([cluster, instances]);
+    });
+
+    function list(cluster, token, fn){
+      ecs.listContainerInstances({ cluster: cluster, nextToken: token, maxResults: 100 }, (err, data) => {
+        if (err) return fn(err);
+        let {nextToken, instanceArns} = data;
+        instances = instances.concat(instanceArns);
+        if (nextToken) return list(cluster, nextToken, fn);
+        fn(null, instances);
+      });
+    }
+  })
+}
+
+
+/**
+ * Describe individual container instances, passed from the promise resolved
+ * from listContainerInstances
+ *
+ * @private
+ * @param {Array} [cluster, services]
+ */
+
+ECS.prototype.describeContainerInstances = function ([cluster, containerInstances]){
+  let ecs = this.ecs;
+  debug('ecs.describeContainerInstances called');
+  return new Promise((resolve, reject) => {
+    let chunks = chunk(containerInstances, 10);
+    let batch = new Batch();
+
+    // describe the services in chunks of 10,
+    // the max limit for ECS
+    chunks.forEach((instances) => batch.push(describe(instances)));
+
+    batch.end((err, results) => {
+      if (err) return reject(err);
+      let instances = [];
+      // combine our results and pass them back
+      results.forEach((result) => {
+        instances = instances.concat(result.containerInstances);
+      });
+      resolve(instances);
+    });
+
+    function describe(instances) {
+      return function (done){
+        let req = { cluster, instances };
+        ecs.describeContainerInstances(req, done);
+      };
+    }
   });
 }
